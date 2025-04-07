@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EcoTrack - Carbon Footprint Tracker</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body {
+      background: linear-gradient(to right, #e0f7fa, #ffffff);
+      font-family: 'Segoe UI', sans-serif;
+    }
+    .container {
+      max-width: 800px;
+      margin: 30px auto;
+      background: #ffffff;
+      padding: 30px;
+      border-radius: 15px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+    }
+    h1, h2 {
+      text-align: center;
+      color: #00796b;
+    }
+    .eco-quote {
+      font-style: italic;
+      font-size: 1.1rem;
+      text-align: center;
+      margin-top: 10px;
+      color: #388e3c;
+    }
+    .eco-banner {
+      width: 100%;
+      border-radius: 12px;
+      margin-bottom: 20px;
+    }
+    .result, #suggestions, #history {
+      margin-top: 25px;
+    }
+    .result {
+      padding: 15px;
+      background-color: #e0f2f1;
+      border-left: 6px solid #00796b;
+      font-weight: bold;
+    }
+    #historyChart {
+      max-height: 300px;
+      margin-top: 20px;
+    }
+    .btn-export {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container" id="authSection">
+  <img src="https://images.unsplash.com/photo-1508780709619-79562169bc64" class="eco-banner" alt="Eco banner"/>
+  <h2>Login / Register</h2>
+  <input type="text" class="form-control my-2" id="username" placeholder="Username" required />
+  <input type="password" class="form-control my-2" id="password" placeholder="Password" required />
+  <div class="d-flex justify-content-between">
+    <button class="btn btn-success" onclick="login()">Login</button>
+    <button class="btn btn-secondary" onclick="register()">Register</button>
+  </div>
+  <div class="text-danger mt-2" id="authError" style="display:none;">Invalid credentials.</div>
+</div>
+
+<div class="container" id="mainApp" style="display: none;">
+  <h1>EcoTrack</h1>
+  <div class="eco-quote">"The Earth is what we all have in common." – Wendell Berry</div>
+
+  <form id="carbonForm" class="mt-4">
+    <div class="mb-3">
+      <label for="travel" class="form-label">Daily Travel (km by car)</label>
+      <input type="number" min="0" class="form-control" id="travel" required />
+    </div>
+    <div class="mb-3">
+      <label for="electricity" class="form-label">Electricity Usage (kWh)</label>
+      <input type="number" min="0" class="form-control" id="electricity" required />
+    </div>
+    <div class="mb-3">
+      <label for="diet" class="form-label">Meals with Meat</label>
+      <input type="number" min="0" class="form-control" id="diet" required />
+    </div>
+    <button type="submit" class="btn btn-primary w-100">Calculate</button>
+  </form>
+
+  <div class="result" id="result" style="display:none;"></div>
+  <div class="mt-4" id="suggestions" style="display:none;">
+    <h5>Suggestions:</h5>
+    <ul id="tips"></ul>
+  </div>
+
+  <div class="mt-4" id="history" style="display:none;">
+    <h5>Last 10 Days (Pie Chart):</h5>
+    <ul id="historyList"></ul>
+    <canvas id="historyChart"></canvas>
+    <button class="btn btn-outline-dark btn-export" onclick="exportPDF()">Export as PDF</button>
+  </div>
+
+  <button class="btn btn-danger w-100 mt-3" onclick="logout()">Logout</button>
+</div>
+
+<script>
+  let currentUser = null;
+
+  function register() {
+    const user = document.getElementById("username").value.trim();
+    const pass = document.getElementById("password").value;
+    if (!user || !pass) return;
+
+    const users = JSON.parse(localStorage.getItem("eco_users") || '{}');
+    if (users[user]) {
+      alert("Username already exists!");
+      return;
+    }
+    users[user] = pass;
+    localStorage.setItem("eco_users", JSON.stringify(users));
+    alert("Registered successfully!");
+  }
+
+  function login() {
+    const user = document.getElementById("username").value.trim();
+    const pass = document.getElementById("password").value;
+    const users = JSON.parse(localStorage.getItem("eco_users") || '{}');
+
+    if (users[user] === pass) {
+      currentUser = user;
+      localStorage.setItem("eco_user", user);
+      document.getElementById("authSection").style.display = "none";
+      document.getElementById("mainApp").style.display = "block";
+      loadUserData();
+    } else {
+      document.getElementById("authError").style.display = "block";
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem("eco_user");
+    location.reload();
+  }
+
+  window.onload = function () {
+    const user = localStorage.getItem("eco_user");
+    if (user) {
+      currentUser = user;
+      document.getElementById("authSection").style.display = "none";
+      document.getElementById("mainApp").style.display = "block";
+      loadUserData();
+    }
+  };
+
+  document.getElementById("carbonForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    const travel = +document.getElementById("travel").value;
+    const electricity = +document.getElementById("electricity").value;
+    const diet = +document.getElementById("diet").value;
+
+    if (travel < 0 || electricity < 0 || diet < 0) {
+      alert("Please enter non-negative values.");
+      return;
+    }
+
+    const totalCO2 = (travel * 0.12 + electricity * 0.42 + diet * 2.5).toFixed(2);
+    document.getElementById("result").innerHTML = `Carbon footprint: <strong>${totalCO2} kg CO₂</strong>`;
+    document.getElementById("result").style.display = "block";
+
+    const tips = getTips(travel, electricity, diet);
+    const tipsEl = document.getElementById("tips");
+    tipsEl.innerHTML = "";
+    tips.forEach(t => tipsEl.innerHTML += `<li>${t}</li>`);
+    document.getElementById("suggestions").style.display = "block";
+
+    saveData(totalCO2);
+    loadUserData();
+  });
+
+  function getTips(travel, electricity, diet) {
+    const tips = [];
+    if (travel > 15) tips.push("Reduce car travel. Try carpooling or public transport.");
+    if (electricity > 6) tips.push("Unplug devices and use energy-saving bulbs.");
+    if (diet > 2) tips.push("Reduce meat meals for lower carbon impact.");
+    if (tips.length === 0) tips.push("You're doing great! Keep it up.");
+    return tips;
+  }
+
+  function saveData(value) {
+    const key = `eco_${currentUser}_history`;
+    let history = JSON.parse(localStorage.getItem(key)) || [];
+    history.unshift({ date: new Date().toLocaleDateString(), value });
+    history = history.slice(0, 10);
+    localStorage.setItem(key, JSON.stringify(history));
+  }
+
+  function loadUserData() {
+    const key = `eco_${currentUser}_history`;
+    const data = JSON.parse(localStorage.getItem(key)) || [];
+    const list = document.getElementById("historyList");
+    const chartData = data.reverse();
+    list.innerHTML = chartData.map(e => `<li>${e.date}: ${e.value} kg CO₂</li>`).join('');
+    document.getElementById("history").style.display = data.length ? "block" : "none";
+
+    const ctx = document.getElementById("historyChart").getContext("2d");
+    if (window.myChart) window.myChart.destroy();
+    window.myChart = new Chart(ctx, {
+      type: 'pie',
+      data: {
+        labels: chartData.map(e => e.date),
+        datasets: [{
+          label: 'CO₂ Emissions (kg)',
+          data: chartData.map(e => parseFloat(e.value)),
+          backgroundColor: chartData.map((_, i) => `hsl(${i * 36}, 70%, 60%)`),
+          borderWidth: 1
+        }]
+      },
+      options: {
+        plugins: {
+          title: {
+            display: true,
+            text: 'Carbon Footprint Distribution (Last 10 Days)'
+          }
+        }
+      }
+    });
+  }
+
+  function exportPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    doc.text("EcoTrack - CO₂ Emissions History", 10, 10);
+
+    const key = `eco_${currentUser}_history`;
+    const data = JSON.parse(localStorage.getItem(key)) || [];
+    data.forEach((entry, i) => {
+      doc.text(`${entry.date}: ${entry.value} kg CO₂`, 10, 20 + i * 10);
+    });
+
+    doc.save("EcoTrack_History.pdf");
+  }
+</script>
+
+</body>
+</html>
+
+
